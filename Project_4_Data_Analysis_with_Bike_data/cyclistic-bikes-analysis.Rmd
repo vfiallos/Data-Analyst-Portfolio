@@ -1,0 +1,424 @@
+---
+title: 'Cyclistic Bikes'
+author: 'Vanessa Fiallos'
+output:
+  html_document:
+    number_sections: true
+    toc: true
+    code_folding: show
+---
+
+# Introduction
+This is a case study for the Google Data Analytics Certificate Program. 
+
+# Background
+Cyclistic is a bike sharing program that features over 5,800 geotracked bicycles and 600 docking stations across Chicago.
+
+At Cyclistic, there are 2 types of members: annual members and casual riders. Casual riders do not have memberships, instead they use a single ride pass or a full day pass. 
+
+# Phase 1: Ask
+Our task is to find how annual members and casual riders use Cyclistic bikes differently. 
+
+With our insights, stakeholders will use proposed marketing strategy aimed at converting casual riders into annual members. The director of marketing, Lily Moreno, will be responsible for the development of the campaign, and the marketing analyst team have collected the data that helps guide Cyclistic marketing strategy. The Cyclistic executive team will be the ones to approve the recommended marketing campaign.
+
+
+# Phase 2: Prepare
+
+[Here](https://divvy-tripdata.s3.amazonaws.com/index.html) are data sets from Cyclistic Bikes that have been made available by Motivate International Inc. The data used is for the period of March 2021 to February 2022. Data privacy issues prohibit the using riders’ personally identifiable information. 
+
+The data is credible and there are no issues with bias, so it is reliable, and since it is internal data about the company and their users, it is original. The data is also current as of April 2022.
+
+
+The data sets will be merged to view the full period. We will explore relationships against user type, bike type, and seasons. 
+
+# Phase 3: Process
+
+
+## Setting up environment
+
+Loading packages:
+
+```{r packages, echo=TRUE, message=FALSE, warning=FALSE}
+library(tidyverse) # data manipulation
+library(dplyr) # data wrangling
+library(readr) # data import
+library(base) # basic R functions
+library(hms) # storing time durations 
+library(timetk) # time data wrangling
+library(lubridate) # date attributes wrangling
+library(ggplot2) # visualizations
+library(tidyselect) # subsetting data
+library(graphics) # graphics for visualizations
+library(scales) # formatting data for graphs
+```
+
+## Creating data frames from data sets
+
+The 12 data sets will be stored in our workspace to conduct the analysis:
+
+```{r dataframes, echo=TRUE, message=FALSE, warning=FALSE}
+bike_202103 <- read_csv("../input/cyclistic-tripdata/202103-cyclistic-tripdata.csv")
+bike_202104 <- read_csv("../input/cyclistic-tripdata/202104-cyclistic-tripdata.csv")
+bike_202105 <- read_csv("../input/cyclistic-tripdata/202105-cyclistic-tripdata.csv")
+bike_202106 <- read_csv("../input/cyclistic-tripdata/202106-cyclistic-tripdata.csv")[,(-17:-19)]
+bike_202107 <- read_csv("../input/cyclistic-tripdata/202107-cyclistic-tripdata.csv")
+bike_202108 <- read_csv("../input/cyclistic-tripdata/202108-cyclistic-tripdata.csv")
+bike_202109 <- read_csv("../input/cyclistic-tripdata/202109-cyclistic-tripdata.csv")
+bike_202110 <- read_csv("../input/cyclistic-tripdata/202110-cyclistic-tripdata.csv")
+bike_202111 <- read_csv("../input/cyclistic-tripdata/202111-cyclistic-tripdata.csv")
+bike_202112 <- read_csv("../input/cyclistic-tripdata/202112-cyclistic-tripdata.csv")
+bike_202201 <- read_csv("../input/cyclistic-tripdata/202201-cyclistic-tripdata.csv")[,-17]
+bike_202202 <- read_csv("../input/cyclistic-tripdata/202202-cyclistic-tripdata.csv")
+```
+
+Ensuring our data frames have the same structure:
+
+```{r structure, echo=TRUE, message=FALSE}
+str(bike_202103)
+str(bike_202104)
+str(bike_202105)
+str(bike_202106)
+str(bike_202107)
+str(bike_202108)
+str(bike_202109)
+str(bike_202110)
+str(bike_202111)
+str(bike_202112)
+str(bike_202201)
+str(bike_202202)
+```
+
+## Merging into one data frame
+
+```{r merge}
+cyclistic <- rbind(bike_202103,bike_202104,bike_202105,bike_202106,
+                   bike_202107,bike_202108,bike_202109,bike_202110,
+                   bike_202111,bike_202112,bike_202201,bike_202202,
+                   deparse.level = 0)
+```
+
+## Exploring cyclistic data frame
+
+```{r explore}
+head(cyclistic)
+str(cyclistic)
+```
+
+## Cleaning and manipulating data
+
+### Converting character types to datetime types
+
+Variables `started_at` and `ended_at` display date and time but are not of that type. We will convert them:
+
+```{r datetime, warning=FALSE}
+df <- cyclistic %>% 
+  mutate(started_at=as_datetime(started_at, format= "%m/%d/%Y  %H:%M"), 
+         ended_at=as_datetime(ended_at, format="%m/%d/%Y %H:%M"), 
+         ride_length=hms(ride_length))
+```
+
+### Extracting dates and creating new column
+
+Extracting start and end date from `started_at` and `ended_at`. Creating a new ride length column to categorize by intervals.
+
+```{r extracting dates and ride len, warning=FALSE}
+df <- df %>% mutate(start_date=as.Date(started_at,format="%m/%d/%Y"),
+                  end_date=as.Date(ended_at,format="%m/%d/%Y"),
+                  ride_len=seconds_to_period(ended_at-started_at))
+```
+
+### Categorizing ride length
+
+Using `ride_len` as the premise to categorize by intervals: negative time will be `NA`, intervals under a day will be categorized by the hour, and intervals over 1 day will be `more than 1 day`.
+
+```{r categorizing ride len}
+df <- df %>%
+  mutate(ride_length_interval = 
+           case_when(ride_len@minute < 0 ~ "NA",
+                     ride_len@day == 0 ~ 
+                       case_when(ride_len@hour == 0 ~ "00 - 01 hour",
+                                 ride_len@hour == 1 ~ "01 - 02 hours",
+                                 ride_len@hour == 2 ~ "02 - 03 hours",
+                                 ride_len@hour == 3 ~ "03 - 04 hours",
+                                 ride_len@hour == 4 ~ "04 - 05 hours",
+                                 ride_len@hour == 5 ~ "05 - 06 hours",
+                                 ride_len@hour == 6 ~ "06 - 07 hours",
+                                 ride_len@hour == 7 ~ "07 - 08 hours",
+                                 ride_len@hour == 8 ~ "08 - 09 hours",
+                                 ride_len@hour == 9 ~ "09 - 10 hours",
+                                 ride_len@hour == 10 ~ "10 - 11 hours",
+                                 ride_len@hour == 11 ~ "11 - 12 hours",
+                                 ride_len@hour == 12 ~ "12 - 13 hours",
+                                 ride_len@hour == 13 ~ "13 - 14 hours",
+                                 ride_len@hour == 14 ~ "14 - 15 hours",
+                                 ride_len@hour == 15 ~ "15 - 16 hours",
+                                 ride_len@hour == 16 ~ "16 - 17 hours",
+                                 ride_len@hour == 17 ~ "17 - 18 hours",
+                                 ride_len@hour == 18 ~ "18 - 19 hours",
+                                 ride_len@hour == 19 ~ "19 - 20 hours",
+                                 ride_len@hour == 20 ~ "20 - 21 hours",
+                                 ride_len@hour == 21 ~ "21 - 22 hours",
+                                 ride_len@hour == 22 ~ "22 - 23 hours",
+                                 ride_len@hour == 23 ~ "23 - 24 hours",
+                                 TRUE ~ "more than 1 day"),
+                     TRUE ~ "more than 1 day"))
+```
+
+
+### Examine updated structure
+
+```{r df structure}
+str(df)
+```
+
+# Phase 4: Analyze 
+
+Checking average bike ride length by bike type and user type:
+
+```{r summarize, message=FALSE}
+summary <- df %>% 
+  group_by(member_casual,rideable_type) %>%
+  summarize(mean_ride_length  = 
+              round(seconds_to_period(mean(period_to_seconds(ride_len),na.rm=TRUE)), digits=0),
+            min_ride_length = 
+              seconds_to_period(min(period_to_seconds(ride_len),na.rm=TRUE)),
+            max_ride_length = 
+              seconds_to_period(max(period_to_seconds(ride_len),na.rm=TRUE)))
+head(summary)
+```
+
+Classic bikes by users have a higher average ride length at 29 minutes and members at 14 minutes. Electric bikes by users hold an average of just under 20 minutes and members at under 13 minutes. Minimum ride length as negative time does not make sense, so we move onto max ride length. Excluding docked bikes, the maximum is the same by user and bike. Classic bikes have a maximum of just over a day and electric bikes are at an 8 hour max. Docked bikes have higher averages and maximums. Docked bikes having a maximum ride length of nearly 38 days is excessive and should be limited.
+
+Counting riders by day of week, where 1 is Sunday and 7 is Saturday.
+
+```{r count day of week, message=FALSE}
+casual_total <- sum(df$member_casual == "casual")
+member_total <- sum(df$member_casual == "member")
+
+count_dow <- df %>%
+  group_by(member_casual,day_of_week) %>%
+  count() %>%
+  mutate(percent = case_when(
+    member_casual == "casual" ~ n/casual_total * 100,
+    member_casual == "member" ~ n/member_total * 100))
+count_dow
+```
+
+As we see, casual users display heavier use on weekends than midweek, and the opposite occurs for members. Member use bikes more on the weekdays, signaling commute use, than they do on weekends for leisure activities.
+
+# Phase 5: Share
+
+## User type count
+
+Viewing the amount of casual users and members:
+
+```{r user type, echo=FALSE}
+ggplot(df) + 
+  geom_bar(mapping=aes(x=member_casual), fill="blue2") +
+  labs(title="Casual Users VS. Members",
+       caption=paste0("Data from: March 2021 to February 2022")) +
+  geom_text(aes(x=member_casual,label=..count..), stat="count",vjust=-0.1,size=3) +
+  scale_x_discrete("User Type",
+                   labels = c(
+                     "casual" = "Casual",
+                     "member" = "Member")) +
+  theme(panel.grid.major = element_blank(), 
+       panel.grid.minor = element_blank(),
+       panel.background = element_blank(),
+       axis.ticks.x = element_blank(),
+       axis.ticks.y = element_blank(),
+       axis.text.y = element_blank(),
+       axis.title.y = element_blank(),
+       plot.title = element_text(hjust=0.5))
+```
+
+There are over 3 million members and over 2.5 million casual riders.
+
+## Bike type count
+
+Viewing the amount of bike types:
+
+```{r bike type, echo=FALSE}
+ggplot(df) + 
+  geom_bar(mapping=aes(x=rideable_type), fill="blue3") +
+  labs(title="Classic VS. Docked VS. Electric Bike",
+       caption=paste0("Data from: March 2021 to February 2022"),
+       x="Bike Type") +
+  geom_text(aes(x=rideable_type,label=..count..),stat="count",
+            vjust=-0.15,size=3) +
+  scale_x_discrete("Bike Type",
+                   labels = c(
+                     "classic_bike" = "Classic",
+                     "docked_bike" = "Docked",
+                     "electric_bike" = "Electric")) +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank(),
+        axis.title.y = element_blank(),
+        plot.title = element_text(hjust=0.5))
+```
+
+Classic bikes are the most popular, followed by electric bikes. Docked bikes have the lowest interest.
+
+## User type and bike type
+
+Viewing the use of bike type for casual users and members:
+
+```{r user and bike type, echo=FALSE}
+ggplot(df) + 
+  geom_bar(mapping=aes(x=rideable_type), fill = "blue4") +
+  facet_wrap(~member_casual) +
+  labs(title="User Type View of Bike Type",
+       caption=paste0("Data from: March 2021 to February 2022"),
+       x="Bike Type",
+       y="Count") +
+  scale_x_discrete("Bike Type",
+                   labels = c(
+                     "classic_bike" = "Classic",
+                     "docked_bike" = "Docked",
+                     "electric_bike" = "Electric")) +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.ticks.y = element_blank(),
+        plot.title = element_text(hjust=0.5))
+```
+
+Casual users show an interest for all bikes available, and nearly just as much in electric bikes as members do. Without disturbing the use of the classic bikes available, one suggestion is to allow members exclusive access to all bikes, while casual users may continue to use their passes on classic bikes.
+
+## Ride Length Intervals by User Type
+
+Viewing the relationship of casual users and member against ride length intervals.
+
+```{r intervals and user type, echo=FALSE}
+ggplot(df) + 
+  geom_bar(mapping=aes(y=ride_length_interval), fill = "seagreen") +
+  facet_wrap(~member_casual) +
+  labs(title="Ride Length Intervals by User Type",
+       caption=paste0("Data from: March 2021 to February 2022"),
+       y="Ride Length Interval",
+       x="Count") +
+  geom_text(aes(y=ride_length_interval,label=..count..),
+            stat="count",
+            hjust=-0.1,
+            size=2.3) +
+  xlim(0,4000000) +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_text(size = 7),
+        plot.title = element_text(hjust=0.5))
+```
+
+Both casual users and members primarily use cyclistic bikes for **under an hour** more than any other interval. The counts show us that all intervals occur, but with minimal frequency. There is a distinct difference for the `more than 1 day` interval. Casual users occupy bikes for more than one day, where as members show a low interest in that interval. For now, it is best to set a strict daily limit for bike use onto casual users that encourage them to become members with unlimited access.
+
+## User Type View of Ride Length Interval against Bike Type
+
+Grid view of ride length interval against bike type by user type.
+
+```{r user type vs ride length vs bike type, echo=FALSE}
+ggplot(df) + 
+  geom_bar(mapping=aes(y=ride_length_interval), 
+           fill = "seagreen") +
+  facet_grid(~member_casual~rideable_type) +
+  labs(title="Casual Users VS Members Ride Length Intervals by Bike Type",
+       caption=paste0("Data from: March 2021 to February 2022"),
+       y="Ride Length Interval",
+       x="Count") +
+  theme(axis.text.x = element_text(size = 6),
+        axis.text.y = element_text(size = 6),
+        panel.grid.major = element_blank())
+```
+
+As expected, casual riders are the ones using docked bikes for several time intervals. For all bikes, interval `00 - 01 hour` is the basis.
+
+## Weekly View
+
+Showing how casual users and members use bikes during the week:
+
+```{r weekly view, echo=FALSE}
+ggplot(df) +
+  geom_bar(mapping=aes(x=day_of_week), fill="red1") +
+  facet_wrap(~member_casual) +
+  scale_x_continuous("Day of Week", 
+                     breaks=c(1:7),
+                   labels=c(
+                     "Sunday",
+                     "Monday",
+                     "Tuesday",
+                     "Wednesday",
+                     "Thursday",
+                     "Friday",
+                     "Saturday"
+                   )) +
+  labs(title="Weekly View of Initial Bike Use",
+       caption=paste0("Data from: March 2021 to February 2022"),
+       y="Count") +
+  scale_y_continuous(labels = unit_format(unit = "K", scale = 1e-3)) +
+  theme(axis.text.x = element_text(angle = 45), 
+        axis.ticks.x=element_blank(),
+        axis.ticks.y=element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+```
+
+Casual users use the bikes heavily on weekends and it decreases during the week. Member use shows the opposite with heavy use during the week and decreased use on weekends.
+
+## Yearly View
+
+A yearly comparison for casual users and members:
+
+```{r yearly view, echo=FALSE}
+ggplot(df) + 
+  geom_bar(mapping=aes(x=start_date),fill="indianred") +
+  facet_wrap(~member_casual) +
+  scale_x_date(breaks="1 month", minor_breaks = "1 week", labels=date_format("%b")) +
+  labs(title="Yearly View of Initial Bike Use",
+       caption=paste0("Data from: March 2021 to February 2022"),
+       x="Months",
+       y="Count") +
+  theme(axis.text.x = element_text(angle = 90),
+        axis.ticks.y = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+```
+
+Bike use is heavily initialized in the warmer months of the year, from May into October, with casual users relying on them more than members. For casual users, bike use drastically decreases during winter and the beginning of the year, while members still rely on the bikes during this time. 
+
+
+# Phase 6: Act
+
+**Differences**
+
+1. There are more members, over 3 million, than casual users, over 2.5 million. 
+
+2. Casual users favor docked bikes more than members do, with members showing zero interest in docked bikes.
+
+3. There is a distinct difference for when bikes are used throughout the week. Casual users ride more on the weekends while members ride more during the week. Weekend users may be on outings and activities, while weekday users are commuting to work.
+    
+4. Interval times vary a bit from casual user to member. There are over 3 millions trips under an hour that have been made by members. On the other hand, casual users are into a few intervals, from most to least popular:
+    - `00 - 01 hour`
+    - `01 - 02 hours`
+    - `02 - 03 hours`
+    - `03 - 04 hours` 
+This enforces the idea that casual users are riding for recreation, while members cut their trips short for commutes.
+    
+5. The yearly view showed us that from May into October, bike use is much higher than the rest of the year. However, casual users drop during
+winter into the new year, while members continue their use. Warmer weather is the basis for recreational activites and once that is over, it explains why casual user drops.
+
+**Suggestions**
+    
+1. Deploy marketing campaign during summer months, when casual bike use is at its peak.
+
+2. Allow members exclusive access to all bikes for unlimited access.
+
+3. Casual users may ride on the classic bike using their single or day pass.
+
+4. Create a new type of membership that gives access to docked bikes because they are still in demand, but only being used by casual riders. This membership should have a strict limit on ride length of 1 day.
